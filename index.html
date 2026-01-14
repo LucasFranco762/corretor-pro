@@ -1,0 +1,520 @@
+<!-- 
+    Versão: 1.1.27
+    Descrição: Aplicação completa de correção de provas (OCR + Manual).
+    Design: Cantos arredondados [2.5rem], Modal compacto, UI fluida.
+-->
+<!DOCTYPE html>
+<html lang="pt-pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Corretor Pro v1.1.27</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://unpkg.com/tesseract.js@v4.0.1/dist/tesseract.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        body { 
+            font-family: 'Inter', sans-serif; 
+            -webkit-tap-highlight-color: transparent; 
+            overscroll-behavior-y: contain;
+            background-color: #f3f4f6;
+        }
+        .btn-active:active { transform: scale(0.95); }
+        .camera-overlay-frame { border: 2px solid #3b82f6; border-radius: 1rem; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); }
+        .animate-fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 3px solid #3b82f6;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .hidden { display: none !important; }
+        
+        .video-container { position: relative; width: 100%; height: 350px; background: #000; border-radius: 1rem; overflow: hidden; }
+        .controls-overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 1rem; z-index: 40; background: linear-gradient(transparent, rgba(0,0,0,0.7)); }
+        video { object-fit: cover; width: 100%; height: 100%; }
+
+        .option-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            aspect-ratio: 1 / 1;
+            width: 36px;
+            height: 36px;
+            border-radius: 9999px;
+            transition: all 0.2s ease;
+        }
+    </style>
+</head>
+<body class="text-slate-900">
+
+    <div id="app" class="max-w-md mx-auto min-h-screen flex flex-col">
+        <!-- CABEÇALHO -->
+        <header id="main-header" class="bg-blue-600 text-white p-6 shadow-lg">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h1 class="text-xl font-black tracking-tight">Corretor Pro</h1>
+                    <p class="text-[10px] opacity-80 font-bold uppercase tracking-widest" id="header-status">Status: Online</p>
+                </div>
+                <span class="text-[10px] bg-blue-700 px-2 py-1 rounded-md font-mono">v1.1.27</span>
+            </div>
+
+            <!-- Painel de Gabarito Ativo -->
+            <div id="active-panel" class="bg-blue-700/50 rounded-[2.5rem] p-6 border border-blue-400/30">
+                <div id="active-subject-empty">
+                    <p class="text-xs text-blue-100 italic text-center">Nenhum gabarito ativo</p>
+                </div>
+                <div id="active-subject-content" class="hidden space-y-2">
+                    <div class="flex justify-between items-start">
+                        <h2 id="active-subject-name" class="font-bold text-lg leading-tight">Disciplina</h2>
+                        <span id="active-q-summary" class="text-[10px] bg-white/20 px-2 py-0.5 rounded-full">0 Questões</span>
+                    </div>
+                    <div class="flex gap-8 pt-1 opacity-90 border-t border-white/10 mt-2 pt-2">
+                        <div class="flex-1">
+                            <p class="text-[8px] uppercase font-black text-blue-200">Professor</p>
+                            <p id="active-teacher-name" class="text-[11px] font-semibold truncate">-</p>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-[8px] uppercase font-black text-blue-200">Corretor</p>
+                            <p id="active-checker-name" class="text-[11px] font-semibold truncate">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="flex-grow p-6 overflow-y-auto">
+            
+            <!-- MENU PRINCIPAL -->
+            <div id="menu-view" class="space-y-6 animate-fade-in">
+                <section>
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 px-1">Disciplinas Disponíveis</h3>
+                    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                        <table class="w-full text-left">
+                            <tbody id="subjects-table-body" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                    <p id="subjects-empty" class="hidden text-center text-xs text-slate-400 py-4 italic">Nenhum gabarito criado ainda.</p>
+                </section>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <button onclick="prepareNewSetup()" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center btn-active transition-all hover:bg-blue-50">
+                        <span class="text-3xl mb-2">📝</span>
+                        <span class="font-bold text-xs text-slate-600">Novo Gabarito</span>
+                    </button>
+                    <button onclick="goToCamera()" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center btn-active transition-all hover:bg-emerald-50">
+                        <span class="text-3xl mb-2">📸</span>
+                        <span class="font-bold text-xs text-slate-600">Corrigir Prova</span>
+                    </button>
+                    <button onclick="navigate('list')" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center btn-active transition-all hover:bg-amber-50">
+                        <span class="text-3xl mb-2">📊</span>
+                        <span class="font-bold text-xs text-slate-600">Histórico/PDF</span>
+                    </button>
+                    <button onclick="confirmReset()" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center btn-active transition-all hover:bg-red-50">
+                        <span class="text-3xl mb-2">🧹</span>
+                        <span class="font-bold text-xs text-slate-600">Limpar Tudo</span>
+                    </button>
+                </div>
+
+                <button onclick="confirmExit()" class="w-full bg-slate-200 p-4 rounded-2xl flex items-center justify-center gap-3 btn-active text-slate-600 transition-colors duration-200 hover:bg-red-600 hover:text-white">
+                    <span class="font-black text-[10px] uppercase tracking-widest">Sair do Sistema</span>
+                </button>
+            </div>
+
+            <!-- TELA: SETUP -->
+            <div id="setup-view" class="hidden space-y-6 animate-fade-in">
+                <div class="flex items-center gap-4">
+                    <button onclick="navigate('menu')" class="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center">←</button>
+                    <h2 class="text-xl font-black">Configurar Gabarito</h2>
+                </div>
+                <div class="space-y-4">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase px-1">Identificação</label>
+                        <input type="text" id="teacher-name" placeholder="Nome do Professor" class="w-full p-4 rounded-xl bg-white border border-slate-200 outline-none">
+                        <input type="text" id="checker-name" placeholder="Responsável pela Correção" class="w-full p-4 rounded-xl bg-white border border-slate-200 outline-none">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase px-1">Dados da Prova</label>
+                        <input type="text" id="subject-name" placeholder="Nome da Disciplina" class="w-full p-4 rounded-xl bg-white border border-slate-200 outline-none">
+                        <div class="grid grid-cols-2 gap-3">
+                            <input type="number" id="q-count" placeholder="Nº Questões" class="p-4 rounded-xl bg-white border border-slate-200 outline-none">
+                            <input type="number" id="total-value" placeholder="Valor Total" class="p-4 rounded-xl bg-white border border-slate-200 outline-none">
+                        </div>
+                    </div>
+                </div>
+                <div id="answers-container" class="grid grid-cols-5 gap-3 mt-4"></div>
+                <button onclick="saveSetup()" class="w-full bg-blue-600 text-white p-5 rounded-2xl font-black shadow-lg btn-active">SALVAR GABARITO</button>
+            </div>
+
+            <!-- TELA: CORREÇÃO -->
+            <div id="camera-view" class="hidden flex flex-col h-full animate-fade-in">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-black">Digitalização</h2>
+                    <span id="cam-status" class="text-[9px] font-black px-2 py-1 bg-slate-200 text-slate-400 rounded-md">OFFLINE</span>
+                </div>
+
+                <div class="flex bg-slate-200 p-1 rounded-xl mb-4">
+                    <button id="tab-auto" onclick="setCorrectionMode('auto')" class="flex-1 py-2 text-[10px] font-black uppercase rounded-lg bg-white shadow-sm text-blue-600">Auto (OCR)</button>
+                    <button id="tab-manual" onclick="setCorrectionMode('manual')" class="flex-1 py-2 text-[10px] font-black uppercase rounded-lg text-slate-500">Manual</button>
+                </div>
+
+                <input type="text" id="ocr-student-name" placeholder="NOME DO ALUNO..." class="w-full p-4 mb-4 rounded-xl border-2 border-blue-500 font-black text-center text-blue-600 outline-none uppercase">
+                
+                <div id="mode-auto-container" class="flex-grow flex flex-col min-h-0">
+                    <div class="video-container flex-grow relative shadow-inner">
+                        <video id="video" autoplay playsinline muted></video>
+                        <div id="cam-blocker" class="z-50 absolute inset-0 bg-slate-900 flex flex-col items-center justify-center p-8 text-center text-white">
+                            <button type="button" onclick="activateCamera()" class="w-full bg-blue-600 p-4 rounded-xl font-black shadow-lg btn-active mb-4">ATIVAR CÂMARA</button>
+                            <label class="w-full bg-white/10 border border-white/20 p-4 rounded-xl font-black cursor-pointer flex items-center justify-center gap-2">
+                                <span>CARREGAR FOTO</span>
+                                <input type="file" accept="image/*" class="hidden" onchange="handleFileUpload(event)">
+                            </label>
+                        </div>
+                        <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                            <div class="camera-overlay-frame w-64 h-80"></div>
+                        </div>
+                        <div class="controls-overlay">
+                            <button type="button" id="capture-btn" onclick="runCapture()" class="w-full bg-white text-blue-600 p-4 rounded-xl font-black shadow-2xl flex items-center justify-center gap-3 btn-active disabled:opacity-50" disabled>
+                                <span class="text-xs uppercase tracking-widest">Analisar Agora</span>
+                                <div id="btn-spinner" class="hidden spinner"></div>
+                            </button>
+                        </div>
+                        <canvas id="canvas" class="hidden"></canvas>
+                    </div>
+                </div>
+
+                <div id="mode-manual-container" class="hidden space-y-4 bg-white p-6 rounded-2xl border border-slate-200 overflow-y-auto">
+                    <div id="manual-questions-list" class="space-y-4"></div>
+                    <button onclick="processManualCorrection()" class="w-full bg-emerald-600 text-white p-4 rounded-xl font-black shadow-lg btn-active">CONFIRMAR RESPOSTAS</button>
+                </div>
+
+                <button onclick="stopCamera(); navigate('menu')" class="w-full mt-4 bg-slate-200 p-4 rounded-xl font-black text-[10px] text-slate-500 btn-active uppercase">Voltar ao Menu</button>
+            </div>
+
+            <!-- TELA: HISTÓRICO -->
+            <div id="list-view" class="hidden space-y-6 animate-fade-in">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-black">Histórico</h2>
+                    <button onclick="navigate('menu')" class="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center">←</button>
+                </div>
+                <div id="history-subjects-list" class="space-y-4"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL COMPACTO -->
+    <div id="modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
+        <div class="bg-white rounded-[2rem] p-6 w-full max-w-[280px] text-center shadow-2xl border border-slate-100">
+            <div id="modal-icon" class="text-4xl mb-3">✅</div>
+            <h3 id="modal-title" class="text-lg font-black mb-1 leading-tight">Aviso</h3>
+            <p id="modal-body" class="text-slate-500 mb-5 text-[11px] leading-relaxed px-2"></p>
+            <div id="modal-footer" class="space-y-2">
+                <button id="modal-btn-close" onclick="closeModal()" class="w-full bg-slate-900 text-white p-3 rounded-xl font-black uppercase text-[10px] tracking-widest">OK</button>
+                <div id="modal-confirm-actions" class="hidden flex gap-2">
+                    <button onclick="closeModal()" class="flex-1 bg-slate-100 p-3 rounded-xl font-black text-slate-500 text-[10px] tracking-widest">CANCELAR</button>
+                    <button id="modal-btn-confirm" class="flex-1 bg-red-600 text-white p-3 rounded-xl font-black text-[10px] tracking-widest">SIM</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DB_KEY = 'corretor_v1120';
+        let state = {
+            setup: null,
+            allSetups: JSON.parse(localStorage.getItem(DB_KEY + '_setups')) || [],
+            results: JSON.parse(localStorage.getItem(DB_KEY + '_results')) || [],
+            manualAnswers: []
+        };
+
+        let ocrWorker = null;
+        let stream = null;
+        let isProcessing = false;
+
+        function save() {
+            localStorage.setItem(DB_KEY + '_setups', JSON.stringify(state.allSetups));
+            localStorage.setItem(DB_KEY + '_results', JSON.stringify(state.results));
+        }
+
+        function navigate(view) {
+            document.querySelectorAll('#app main > div').forEach(div => div.classList.add('hidden'));
+            document.getElementById(view + '-view').classList.remove('hidden');
+            const header = document.getElementById('main-header');
+            if (view === 'camera') header.classList.add('hidden');
+            else header.classList.remove('hidden');
+            if (view === 'menu') updateUI();
+            if (view === 'list') renderHistory();
+            if (view !== 'camera') stopCamera();
+        }
+
+        function updateUI() {
+            const tbody = document.getElementById('subjects-table-body');
+            tbody.innerHTML = '';
+            if (state.allSetups.length === 0) {
+                document.getElementById('subjects-empty').classList.remove('hidden');
+            } else {
+                document.getElementById('subjects-empty').classList.add('hidden');
+                state.allSetups.forEach(s => {
+                    const active = state.setup && state.setup.subject === s.subject;
+                    tbody.innerHTML += `<tr class="${active ? 'bg-blue-50' : ''}">
+                        <td class="py-4 pl-4 text-sm font-bold text-slate-700">
+                            ${s.subject}
+                            <div class="text-[9px] text-slate-400 font-bold uppercase mt-0.5">Prof: ${s.teacher || 'N/A'}</div>
+                        </td>
+                        <td class="py-4 pr-4 text-right">
+                            <button onclick="setSubject('${s.subject}')" class="text-[9px] font-black uppercase ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'} px-3 py-1.5 rounded-lg">${active ? 'Ativo' : 'Usar'}</button>
+                        </td>
+                    </tr>`;
+                });
+            }
+            if (state.setup) {
+                document.getElementById('active-subject-empty').classList.add('hidden');
+                document.getElementById('active-subject-content').classList.remove('hidden');
+                document.getElementById('active-subject-name').innerText = state.setup.subject;
+                document.getElementById('active-teacher-name').innerText = state.setup.teacher || '-';
+                document.getElementById('active-checker-name').innerText = state.setup.checker || '-';
+                document.getElementById('active-q-summary').innerText = `${state.setup.qCount} questões`;
+            }
+        }
+
+        function setSubject(name) {
+            state.setup = state.allSetups.find(s => s.subject === name);
+            updateUI();
+        }
+
+        function prepareNewSetup() {
+            document.getElementById('teacher-name').value = "";
+            document.getElementById('checker-name').value = "";
+            document.getElementById('subject-name').value = "";
+            document.getElementById('q-count').value = "";
+            document.getElementById('total-value').value = "";
+            document.getElementById('answers-container').innerHTML = "";
+            navigate('setup');
+        }
+
+        function goToCamera() {
+            if (!state.setup) return showModal('Atenção', 'Escolha um gabarito primeiro.', '⚠️');
+            document.getElementById('ocr-student-name').value = "";
+            state.manualAnswers = new Array(state.setup.qCount).fill('');
+            renderManualQuestions();
+            navigate('camera');
+            initOCR();
+        }
+
+        async function activateCamera() {
+            const video = document.getElementById('video');
+            const blocker = document.getElementById('cam-blocker');
+            try {
+                if (stream) stream.getTracks().forEach(t => t.stop());
+                const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                stream = mediaStream;
+                video.srcObject = mediaStream;
+                video.onloadedmetadata = () => { 
+                    video.play().then(() => { 
+                        blocker.classList.add('hidden'); 
+                        document.getElementById('cam-status').innerText = "ONLINE"; 
+                        document.getElementById('cam-status').classList.replace('text-slate-400', 'text-emerald-500');
+                    }); 
+                };
+            } catch (err) { console.error(err); }
+        }
+
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const name = document.getElementById('ocr-student-name').value.trim();
+            if (!name) return showModal('Atenção', 'Identifique o aluno primeiro.', '👤');
+            isProcessing = true;
+            document.getElementById('btn-spinner').classList.remove('hidden');
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = async () => {
+                    const canvas = document.getElementById('canvas');
+                    canvas.width = img.width; canvas.height = img.height;
+                    canvas.getContext('2d').drawImage(img, 0, 0);
+                    try {
+                        if(!ocrWorker) await initOCR();
+                        const { data: { text } } = await ocrWorker.recognize(canvas);
+                        processResult(name, text.toUpperCase().replace(/[^A-E]/g, '').split('').slice(0, state.setup.qCount));
+                    } catch (err) { showModal('Erro', 'Falha no OCR.', '❌'); }
+                    finally { isProcessing = false; document.getElementById('btn-spinner').classList.add('hidden'); }
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function initOCR() {
+            const captureBtn = document.getElementById('capture-btn');
+            if (ocrWorker) { captureBtn.disabled = false; return; }
+            try {
+                ocrWorker = await Tesseract.createWorker();
+                await ocrWorker.loadLanguage('eng');
+                await ocrWorker.initialize('eng');
+                captureBtn.disabled = false;
+            } catch (e) { console.error(e); }
+        }
+
+        function stopCamera() {
+            if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+            document.getElementById('cam-blocker').classList.remove('hidden');
+            document.getElementById('cam-status').innerText = "OFFLINE";
+            document.getElementById('cam-status').classList.replace('text-emerald-500', 'text-slate-400');
+        }
+
+        async function runCapture() {
+            if (isProcessing) return;
+            const name = document.getElementById('ocr-student-name').value.trim();
+            if (!name) return showModal('Atenção', 'Insira o nome do aluno.', '👤');
+            isProcessing = true;
+            document.getElementById('btn-spinner').classList.remove('hidden');
+            const canvas = document.getElementById('canvas');
+            const video = document.getElementById('video');
+            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            try {
+                const { data: { text } } = await ocrWorker.recognize(canvas);
+                processResult(name, text.toUpperCase().replace(/[^A-E]/g, '').split('').slice(0, state.setup.qCount));
+            } catch (err) { showModal('Erro', 'Erro na digitalização.', '❌'); }
+            finally { isProcessing = false; document.getElementById('btn-spinner').classList.add('hidden'); }
+        }
+
+        function processManualCorrection() {
+            const name = document.getElementById('ocr-student-name').value.trim();
+            if (!name) return showModal('Atenção', 'Insira o nome do aluno.', '👤');
+            if (state.manualAnswers.includes('')) return showModal('Incompleto', 'Selecione todas as respostas.', '📝');
+            processResult(name, state.manualAnswers);
+        }
+
+        function processResult(studentName, answers) {
+            let hits = 0;
+            answers.forEach((ans, i) => { if (ans === state.setup.answers[i]) hits++; });
+            const score = ((hits / state.setup.qCount) * state.setup.value).toFixed(2);
+            state.results.unshift({ 
+                id: Date.now(), subject: state.setup.subject, teacher: state.setup.teacher, checker: state.setup.checker,
+                studentName: studentName.toUpperCase(), hits, total: state.setup.qCount, score, date: new Date().toLocaleDateString() 
+            });
+            save();
+            showModal(`Nota: ${score}`, `Correção guardada para ${studentName}.`, '🎓');
+            stopCamera();
+            navigate('menu');
+        }
+
+        function saveSetup() {
+            const teacher = document.getElementById('teacher-name').value.trim();
+            const checker = document.getElementById('checker-name').value.trim();
+            const subject = document.getElementById('subject-name').value.trim();
+            const qCount = parseInt(document.getElementById('q-count').value);
+            const val = parseFloat(document.getElementById('total-value').value);
+            const ans = Array.from(document.querySelectorAll('.q-input')).map(i => i.value.toUpperCase());
+            if (!teacher || !checker || !subject || isNaN(qCount) || ans.includes('')) return showModal('Aviso', 'Preencha todos os campos.', '⚠️');
+            const newSetup = { teacher, checker, subject, qCount, value: val, answers: ans };
+            state.allSetups = state.allSetups.filter(s => s.subject !== subject);
+            state.allSetups.push(newSetup);
+            state.setup = newSetup;
+            save(); navigate('menu');
+        }
+
+        document.getElementById('q-count').addEventListener('input', (e) => {
+            const count = parseInt(e.target.value) || 0;
+            const container = document.getElementById('answers-container');
+            container.innerHTML = '';
+            for (let i = 1; i <= count; i++) {
+                container.innerHTML += `<div class="flex flex-col items-center">
+                    <span class="text-[9px] text-slate-400 font-black mb-1">${i}</span>
+                    <input type="text" maxlength="1" oninput="this.value = this.value.toUpperCase().replace(/[^A-E]/g, '')" class="q-input w-full text-center p-3 border-2 border-slate-100 rounded-xl font-black text-blue-600 outline-none">
+                </div>`;
+            }
+        });
+
+        function renderManualQuestions() {
+            const container = document.getElementById('manual-questions-list');
+            container.innerHTML = '';
+            for (let i = 0; i < state.setup.qCount; i++) {
+                container.innerHTML += `<div class="flex items-center gap-3 py-2 border-b border-slate-50">
+                    <span class="w-5 font-black text-slate-300 text-[10px]">${i+1}</span>
+                    <div class="flex gap-2">
+                        ${['A','B','C','D','E'].map(l => `<button onclick="selectManualAnswer(${i}, '${l}')" id="manual-q${i}-${l}" class="option-btn border-2 border-slate-100 text-[11px] font-black text-slate-400">${l}</button>`).join('')}
+                    </div>
+                </div>`;
+            }
+        }
+
+        function selectManualAnswer(idx, letter) {
+            ['A','B','C','D','E'].forEach(l => {
+                document.getElementById(`manual-q${idx}-${l}`).className = 'option-btn border-2 border-slate-100 text-[11px] font-black text-slate-400';
+            });
+            state.manualAnswers[idx] = letter;
+            document.getElementById(`manual-q${idx}-${letter}`).className = 'option-btn border-2 border-blue-500 bg-blue-600 text-[11px] font-black text-white shadow-md';
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('history-subjects-list');
+            container.innerHTML = '';
+            const subjs = [...new Set(state.results.map(r => r.subject))];
+            if (subjs.length === 0) return container.innerHTML = '<div class="text-center py-20 text-slate-400 italic">Sem registos.</div>';
+            subjs.forEach(sName => {
+                const results = state.results.filter(r => r.subject === sName);
+                container.innerHTML += `<div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="font-black text-slate-800">${sName}</h3>
+                        <button onclick="exportPDF('${sName}')" class="text-[9px] font-black uppercase bg-emerald-100 text-emerald-600 px-3 py-1.5 rounded-lg">Gerar PDF</button>
+                    </div>
+                    <div class="space-y-2">${results.map(r => `<div class="flex justify-between items-center py-2 border-t border-slate-50 text-[11px]">
+                        <span class="font-bold text-slate-500 uppercase">${r.studentName}</span>
+                        <span class="font-black text-blue-600">${r.score}</span>
+                    </div>`).join('')}</div>
+                </div>`;
+            });
+        }
+
+        function exportPDF(subjectName) {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const data = state.results.filter(r => r.subject === subjectName);
+            doc.text(`Relatório: ${subjectName}`, 14, 25);
+            doc.autoTable({ 
+                startY: 35, head: [['Aluno', 'Acertos', 'Nota']], 
+                body: data.map(r => [r.studentName, `${r.hits}/${r.total}`, r.score]),
+                headStyles: { fillColor: [37, 99, 235] }
+            });
+            doc.save(`Relatorio_${subjectName}.pdf`);
+        }
+
+        function setCorrectionMode(mode) {
+            const isAuto = mode === 'auto';
+            document.getElementById('mode-auto-container').classList.toggle('hidden', !isAuto);
+            document.getElementById('mode-manual-container').classList.toggle('hidden', isAuto);
+            if (!isAuto) stopCamera();
+        }
+
+        function showModal(title, body, icon, confirmType = null) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-body').innerText = body;
+            document.getElementById('modal-icon').innerText = icon;
+            const closeBtn = document.getElementById('modal-btn-close');
+            const confirmActions = document.getElementById('modal-confirm-actions');
+            const confirmBtn = document.getElementById('modal-btn-confirm');
+            if (confirmType) {
+                closeBtn.classList.add('hidden'); confirmActions.classList.remove('hidden');
+                if (confirmType === 'reset') confirmBtn.onclick = () => { localStorage.clear(); location.reload(); };
+                else if (confirmType === 'exit') confirmBtn.onclick = () => { window.location.href = "about:blank"; };
+            } else { closeBtn.classList.remove('hidden'); confirmActions.classList.add('hidden'); }
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+        function confirmReset() { showModal('Limpar?', 'Apagar tudo?', '🧹', 'reset'); }
+        function confirmExit() { showModal('Sair?', 'Deseja encerrar?', '🚪', 'exit'); }
+        window.onload = updateUI;
+    </script>
+</body>
+</html>
