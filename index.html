@@ -1,14 +1,14 @@
 <!-- 
-    Versão: 1.1.29
+    Versão: 1.1.30
     Descrição: Aplicação completa de correção de provas (OCR + Manual).
-    Ajustes: Interatividade visual nos modos de correção e rótulo detalhado no cabeçalho.
+    Ajustes: Inclusão de créditos de desenvolvimento no cabeçalho.
 -->
 <!DOCTYPE html>
 <html lang="pt-pt">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Corretor Pro v1.1.29</title>
+    <title>Corretor Pro v1.1.30</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
@@ -69,12 +69,15 @@
     <div id="app" class="max-w-md mx-auto min-h-screen flex flex-col">
         <!-- CABEÇALHO -->
         <header id="main-header" class="bg-blue-600 text-white p-6 shadow-lg">
-            <div class="flex justify-between items-center mb-4">
+            <div class="flex justify-between items-start mb-4">
                 <div>
                     <h1 class="text-xl font-black tracking-tight">Corretor Pro</h1>
                     <p class="text-[10px] opacity-80 font-bold uppercase tracking-widest" id="header-status">Status: Online</p>
                 </div>
-                <span class="text-[10px] bg-blue-700 px-2 py-1 rounded-md font-mono">v1.1.29</span>
+                <div class="text-right">
+                    <span class="text-[10px] bg-blue-700 px-2 py-1 rounded-md font-mono inline-block mb-1">v1.1.30</span>
+                    <p class="text-[8px] opacity-40 leading-tight font-medium">Desenvolvido por Lucas Pires Franco<br>Engenharia de Computação</p>
+                </div>
             </div>
 
             <!-- Painel de Gabarito Ativo -->
@@ -316,7 +319,7 @@
             document.getElementById('ocr-student-name').value = "";
             state.manualAnswers = new Array(state.setup.qCount).fill('');
             renderManualQuestions();
-            setCorrectionMode('auto'); // Reset para auto ao entrar
+            setCorrectionMode('auto');
             navigate('camera');
             initOCR();
         }
